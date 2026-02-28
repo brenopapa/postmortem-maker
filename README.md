@@ -2,7 +2,9 @@
 
 > **PostMortems make devs sad, use this instead.** 😎
 
-Automatize a criação de postmortems coletando informações do Jira e Slack, com análise assistida por IA.
+Automatize a criação de postmortems coletando informações do Jira e Slack, com análise assistida por IA. Via CLI ou interface Web.
+
+![Postmortem Maker - Interface Web](docs/images/screenshot.png)
 
 ## 📋 Sobre
 
@@ -125,8 +127,6 @@ streamlit run app.py
 ```
 
 Abre automaticamente no navegador em `http://localhost:8501`.
-
-![Postmortem Maker - Interface Web](docs/images/screenshot.png)
 
 **Funcionalidades:**
 - Interface limpa e intuitiva
