@@ -116,7 +116,23 @@ NOTION_DATABASE_ID=id-do-database
 
 ## 📖 Uso
 
-### Modo Interativo
+### Interface Web (Streamlit)
+
+A forma mais fácil e visual de usar:
+
+```bash
+streamlit run app.py
+```
+
+Abre automaticamente no navegador em `http://localhost:8501`.
+
+**Funcionalidades:**
+- Interface limpa e intuitiva
+- Preview em tempo real do Markdown gerado
+- Download do arquivo `.md`
+- Exportação direta para Notion
+
+### Modo Interativo (CLI)
 
 O modo mais fácil de usar:
 

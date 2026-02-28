@@ -12,6 +12,26 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+# Placeholder patterns to detect unconfigured values
+PLACEHOLDER_PATTERNS = [
+    "your-",
+    "seu-",
+    "sua-",
+    "example",
+    "placeholder",
+    "xxx",
+    "change-me",
+]
+
+
+def _is_placeholder(value: str) -> bool:
+    """Check if a value is a placeholder/default value."""
+    if not value:
+        return True
+    value_lower = value.lower()
+    return any(pattern in value_lower for pattern in PLACEHOLDER_PATTERNS)
+
+
 @dataclass
 class JiraConfig:
     """Configurações para a API do Jira."""
@@ -29,8 +49,12 @@ class JiraConfig:
         )
 
     def is_valid(self) -> bool:
-        """Verifica se a configuração é válida."""
-        return all([self.base_url, self.email, self.api_token])
+        """Verifica se a configuração é válida (não vazia e não placeholder)."""
+        return all([
+            self.base_url and not _is_placeholder(self.base_url),
+            self.email and not _is_placeholder(self.email),
+            self.api_token and not _is_placeholder(self.api_token)
+        ])
 
 
 @dataclass
@@ -48,8 +72,8 @@ class SlackConfig:
         )
 
     def is_valid(self) -> bool:
-        """Verifica se a configuração é válida."""
-        return bool(self.bot_token)
+        """Verifica se a configuração é válida (não vazia e não placeholder)."""
+        return bool(self.bot_token) and not _is_placeholder(self.bot_token)
 
 
 @dataclass
@@ -67,8 +91,8 @@ class NotionConfig:
         )
 
     def is_valid(self) -> bool:
-        """Verifica se a configuração é válida."""
-        return bool(self.api_token)
+        """Verifica se a configuração é válida (não vazia e não placeholder)."""
+        return bool(self.api_token) and not _is_placeholder(self.api_token)
 
 
 @dataclass
@@ -86,8 +110,8 @@ class OpenAIConfig:
         )
 
     def is_valid(self) -> bool:
-        """Verifica se a configuração é válida."""
-        return bool(self.api_key)
+        """Verifica se a configuração é válida (não vazia e não placeholder)."""
+        return bool(self.api_key) and not _is_placeholder(self.api_key)
 
 
 @dataclass
