@@ -126,6 +126,8 @@ streamlit run app.py
 
 Abre automaticamente no navegador em `http://localhost:8501`.
 
+![Postmortem Maker - Interface Web](docs/images/screenshot.png)
+
 **Funcionalidades:**
 - Interface limpa e intuitiva
 - Preview em tempo real do Markdown gerado
