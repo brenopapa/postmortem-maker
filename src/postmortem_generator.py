@@ -23,17 +23,22 @@ from .ai_analyzer import AIAnalyzer
 class PostmortemGenerator:
     """Gerador de documentos de postmortem."""
 
-    def __init__(self, config: AppConfig):
+    def __init__(self, config: AppConfig, use_local_llm: bool = False):
         """
         Inicializa o gerador de postmortem.
         
         Args:
             config: Configurações da aplicação.
+            use_local_llm: Se True, usa LLM customizado (local ou externo) em vez da OpenAI.
         """
         self.config = config
         self.jira_client = JiraClient(config.jira) if config.jira.is_valid() else None
         self.slack_client = SlackClient(config.slack) if config.slack.is_valid() else None
-        self.ai_analyzer = AIAnalyzer(config.openai)
+        self.ai_analyzer = AIAnalyzer(
+            config.openai,
+            local_config=config.local_llm,
+            use_local=use_local_llm
+        )
 
     def _collect_jira_data(self, jira_urls: list[str]) -> list[JiraIssue]:
         """
@@ -260,7 +265,8 @@ class PostmortemGenerator:
         
         # Análise com IA
         if use_ai and self.ai_analyzer.is_available():
-            print("\n🤖 Analisando com IA...")
+            llm_type = "LLM customizado" if self.ai_analyzer.use_local else "OpenAI"
+            print(f"\n🤖 Analisando com IA ({llm_type})...")
             
             # Análise de causa raiz
             print("   - Analisando causa raiz...")

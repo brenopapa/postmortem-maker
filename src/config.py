@@ -115,6 +115,25 @@ class OpenAIConfig:
 
 
 @dataclass
+class LocalLLMConfig:
+    """Configurações para LLM customizado (local ou endpoint externo)."""
+    base_url: str
+    model: str
+
+    @classmethod
+    def from_env(cls) -> "LocalLLMConfig":
+        """Cria configuração a partir de variáveis de ambiente."""
+        return cls(
+            base_url=os.getenv("LOCAL_LLM_URL", ""),
+            model=os.getenv("LOCAL_LLM_MODEL", "liquid/lfm2.5-1.2b")
+        )
+
+    def is_valid(self) -> bool:
+        """Verifica se a configuração é válida."""
+        return bool(self.base_url) and not _is_placeholder(self.base_url)
+
+
+@dataclass
 class OutputConfig:
     """Configurações para a saída do postmortem."""
     output_dir: str = "./output"
@@ -136,6 +155,7 @@ class AppConfig:
     slack: SlackConfig
     notion: NotionConfig
     openai: OpenAIConfig
+    local_llm: LocalLLMConfig
     output: OutputConfig
 
     @classmethod
@@ -146,6 +166,7 @@ class AppConfig:
             slack=SlackConfig.from_env(),
             notion=NotionConfig.from_env(),
             openai=OpenAIConfig.from_env(),
+            local_llm=LocalLLMConfig.from_env(),
             output=OutputConfig.from_env()
         )
 

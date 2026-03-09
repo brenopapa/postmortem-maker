@@ -108,10 +108,20 @@ def interactive_mode(config: AppConfig) -> None:
     # Usar IA?
     use_ai = input("\n🤖 Usar IA para análise? (S/n): ").strip().lower() != 'n'
     
+    # Usar LLM customizado?
+    use_custom_llm = False
+    custom_llm_url = None
+    if use_ai:
+        use_custom_llm = input("💻 Usar LLM customizado (local ou endpoint externo)? (s/N): ").strip().lower() == 's'
+        if use_custom_llm:
+            custom_llm_url = input("🔗 URL do endpoint do LLM (ex: http://192.168.15.6:1234/api/v1/chat): ").strip()
+            if custom_llm_url:
+                config.local_llm.base_url = custom_llm_url
+    
     # Gera o postmortem
     print("\n" + "-"*60)
     
-    generator = PostmortemGenerator(config)
+    generator = PostmortemGenerator(config, use_local_llm=use_custom_llm)
     postmortem = generator.generate(
         title=title,
         incident_issue_url=incident_url,
@@ -159,8 +169,14 @@ def cli_mode(args: argparse.Namespace, config: AppConfig) -> None:
     start_time = parse_datetime(args.start) if args.start else None
     end_time = parse_datetime(args.end) if args.end else None
     
+    # Configura LLM customizado se especificado
+    custom_llm_url = getattr(args, 'llm_endpoint', None)
+    if custom_llm_url:
+        config.local_llm.base_url = custom_llm_url
+    
     # Gera o postmortem
-    generator = PostmortemGenerator(config)
+    use_custom_llm = bool(custom_llm_url)
+    generator = PostmortemGenerator(config, use_local_llm=use_custom_llm)
     postmortem = generator.generate(
         title=args.title,
         incident_issue_url=args.incident_url or "",
@@ -279,6 +295,12 @@ Exemplos de uso:
         "--no-ai",
         action="store_true",
         help="Desabilita análise com IA"
+    )
+    
+    parser.add_argument(
+        "--llm-endpoint",
+        metavar="URL",
+        help="Usa LLM customizado (local ou endpoint externo) em vez da OpenAI. Informe a URL do endpoint (ex: http://192.168.15.6:1234/api/v1/chat)"
     )
     
     # Output

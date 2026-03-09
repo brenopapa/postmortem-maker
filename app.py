@@ -155,7 +155,7 @@ def main():
     # Options
     st.subheader("🎛️ Opções")
     
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     
     with col1:
         use_ai = st.checkbox(
@@ -166,11 +166,28 @@ def main():
         )
     
     with col2:
+        use_local_llm = st.checkbox(
+            "Usar LLM customizado",
+            value=False,
+            help="Usa um LLM customizado (local ou endpoint externo) em vez da OpenAI"
+        )
+    
+    with col3:
         export_notion = st.checkbox(
             "Exportar para Notion",
             value=False,
             disabled=not config.notion.is_valid(),
             help="Requer Notion API configurada"
+        )
+    
+    # Custom LLM URL input
+    local_llm_url = None
+    if use_local_llm:
+        local_llm_url = st.text_input(
+            "URL do LLM Customizado",
+            value=config.local_llm.base_url,
+            placeholder="http://192.168.15.6:1234/api/v1/chat",
+            help="Endpoint da API do LLM (local ou externo)"
         )
     
     if export_notion:
@@ -214,7 +231,11 @@ def main():
         # Generate postmortem
         with st.spinner("🔄 Gerando postmortem..."):
             try:
-                generator = PostmortemGenerator(config)
+                # Configure local LLM if specified
+                if use_local_llm and local_llm_url:
+                    config.local_llm.base_url = local_llm_url
+                
+                generator = PostmortemGenerator(config, use_local_llm=use_local_llm)
                 
                 postmortem = generator.generate(
                     title=title,
@@ -225,7 +246,7 @@ def main():
                     start_time=start_time,
                     end_time=end_time,
                     additional_context=context if context else None,
-                    use_ai=use_ai
+                    use_ai=use_ai or use_local_llm
                 )
                 
                 # Format output

@@ -5,30 +5,204 @@ Responsável por gerar análises de causa raiz e sugestões de melhoria.
 
 from typing import Optional
 import json
+import re
+import requests
 
 from openai import OpenAI
 
-from .config import OpenAIConfig
+from .config import OpenAIConfig, LocalLLMConfig
 from .models import Postmortem, JiraIssue, SlackThread, TimelineEvent
+
+
+def _extract_json(text: str) -> Optional[dict]:
+    """
+    Extrai JSON de um texto que pode conter markdown ou texto adicional.
+    
+    Args:
+        text: Texto que pode conter JSON.
+        
+    Returns:
+        Dicionário extraído ou None se não encontrar JSON válido.
+    """
+    if not text:
+        return None
+    
+    text = text.strip()
+    
+    # Remove markdown code blocks
+    if "```" in text:
+        # Try to extract content between ```json and ```
+        match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', text)
+        if match:
+            text = match.group(1).strip()
+    
+    # Try to find JSON object in the text
+    # Look for the first { and last }
+    start_idx = text.find('{')
+    end_idx = text.rfind('}')
+    
+    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+        json_str = text[start_idx:end_idx + 1]
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError:
+            pass
+    
+    # Try parsing the whole text as JSON
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    
+    return None
 
 
 class AIAnalyzer:
     """Analisador de postmortem utilizando IA."""
 
-    def __init__(self, config: OpenAIConfig):
+    def __init__(self, config: OpenAIConfig, local_config: Optional[LocalLLMConfig] = None, use_local: bool = False):
         """
         Inicializa o analisador de IA.
         
         Args:
             config: Configurações da OpenAI.
+            local_config: Configurações do LLM customizado (local ou externo).
+            use_local: Se True, usa o LLM customizado em vez da OpenAI.
         """
         self.config = config
-        self.client = OpenAI(api_key=config.api_key) if config.is_valid() else None
-        self.model = config.model
+        self.local_config = local_config
+        self.use_local = use_local
+        
+        if use_local and local_config:
+            self.client = None
+            self.model = local_config.model
+        else:
+            self.client = OpenAI(api_key=config.api_key) if config.is_valid() else None
+            self.model = config.model
 
     def is_available(self) -> bool:
         """Verifica se a IA está disponível."""
+        if self.use_local and self.local_config:
+            return self.local_config.is_valid()
         return self.client is not None
+
+    def _call_local_llm(self, system_prompt: str, user_input: str) -> Optional[str]:
+        """
+        Chama o LLM customizado (local ou externo).
+        
+        Args:
+            system_prompt: Prompt do sistema.
+            user_input: Entrada do usuário.
+            
+        Returns:
+            Resposta do modelo ou None se houver erro.
+        """
+        if not self.local_config:
+            return None
+            
+        try:
+            response = requests.post(
+                self.local_config.base_url,
+                headers={"Content-Type": "application/json"},
+                json={
+                    "model": self.local_config.model,
+                    "system_prompt": system_prompt,
+                    "input": user_input
+                },
+                timeout=120
+            )
+            response.raise_for_status()
+            data = response.json()
+            
+            # Handle OpenAI-compatible format (LM Studio, Ollama, etc.)
+            if "choices" in data and len(data["choices"]) > 0:
+                choice = data["choices"][0]
+                if "message" in choice and "content" in choice["message"]:
+                    return choice["message"]["content"]
+                if "text" in choice:
+                    return choice["text"]
+            
+            # Handle list format: [{'type': 'message', 'content': '...'}]
+            if isinstance(data, list) and len(data) > 0:
+                first_item = data[0]
+                if isinstance(first_item, dict) and "content" in first_item:
+                    return first_item["content"]
+            
+            # Handle other common formats
+            if isinstance(data, dict):
+                if "response" in data:
+                    result = data["response"]
+                    # Check if response is a list with content
+                    if isinstance(result, list) and len(result) > 0:
+                        first_item = result[0]
+                        if isinstance(first_item, dict) and "content" in first_item:
+                            return first_item["content"]
+                    return result if isinstance(result, str) else str(result)
+                if "output" in data:
+                    result = data["output"]
+                    if isinstance(result, list) and len(result) > 0:
+                        first_item = result[0]
+                        if isinstance(first_item, dict) and "content" in first_item:
+                            return first_item["content"]
+                    return result if isinstance(result, str) else str(result)
+                if "text" in data:
+                    result = data["text"]
+                    return result if isinstance(result, str) else str(result)
+                if "content" in data:
+                    result = data["content"]
+                    return result if isinstance(result, str) else str(result)
+            
+            # Last resort - convert to string but try to extract content if it looks like a list
+            result_str = str(data)
+            # Check if it looks like [{'type': 'message', 'content': '...'}]
+            if result_str.startswith("[{") and "'content':" in result_str:
+                try:
+                    import ast
+                    parsed = ast.literal_eval(result_str)
+                    if isinstance(parsed, list) and len(parsed) > 0:
+                        if isinstance(parsed[0], dict) and "content" in parsed[0]:
+                            return parsed[0]["content"]
+                except:
+                    pass
+            
+            return result_str
+        except Exception as e:
+            print(f"Erro ao chamar LLM customizado: {e}")
+            return None
+
+    def _call_llm(self, system_prompt: str, user_prompt: str, temperature: float = 0.3, max_tokens: int = 2000) -> Optional[str]:
+        """
+        Chama o LLM (local ou OpenAI).
+        
+        Args:
+            system_prompt: Prompt do sistema.
+            user_prompt: Prompt do usuário.
+            temperature: Temperatura do modelo.
+            max_tokens: Número máximo de tokens.
+            
+        Returns:
+            Resposta do modelo ou None se houver erro.
+        """
+        if self.use_local:
+            return self._call_local_llm(system_prompt, user_prompt)
+        
+        if not self.client:
+            return None
+            
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            print(f"Erro ao chamar OpenAI: {e}")
+            return None
 
     def _format_timeline_for_prompt(self, timeline: list[TimelineEvent]) -> str:
         """
@@ -154,24 +328,27 @@ Forneça uma análise detalhada da causa raiz em português brasileiro. A respos
 
 Responda APENAS com o JSON, sem markdown ou texto adicional."""
 
+        system_prompt = "Você é um engenheiro de software sênior especializado em análise de incidentes."
+        
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=2000
-            )
+            content = self._call_llm(system_prompt, prompt, temperature=0.3, max_tokens=2000)
             
-            content = response.choices[0].message.content
-            # Remove possíveis marcadores de código
-            content = content.strip()
-            if content.startswith("```"):
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
-            content = content.strip()
+            if not content:
+                return {
+                    "root_cause": "",
+                    "key_points": [],
+                    "technical_details": ""
+                }
             
-            return json.loads(content)
+            result = _extract_json(content)
+            if result:
+                return result
+            
+            return {
+                "root_cause": "",
+                "key_points": [],
+                "technical_details": ""
+            }
         except Exception as e:
             print(f"Erro ao analisar causa raiz: {e}")
             return {
@@ -232,23 +409,18 @@ Responda em formato JSON:
 
 Responda APENAS com o JSON, sem markdown ou texto adicional."""
 
+        system_prompt = "Você é um engenheiro de software sênior especializado em melhoria de processos."
+        
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.5,
-                max_tokens=1500
-            )
+            content = self._call_llm(system_prompt, prompt, temperature=0.5, max_tokens=1500)
             
-            content = response.choices[0].message.content.strip()
-            if content.startswith("```"):
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
-            content = content.strip()
+            if not content:
+                return []
             
-            data = json.loads(content)
-            return data.get("improvements", [])
+            data = _extract_json(content)
+            if data:
+                return data.get("improvements", [])
+            return []
         except Exception as e:
             print(f"Erro ao sugerir melhorias: {e}")
             return []
@@ -294,15 +466,11 @@ Escreva um resumo em português brasileiro do processo de resolução, incluindo
 Responda com apenas o texto do resumo, sem JSON ou formatação especial. 
 O texto deve ter 2-3 parágrafos bem desenvolvidos."""
 
+        system_prompt = "Você é um engenheiro de software sênior escrevendo documentação de postmortem."
+        
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=1000
-            )
-            
-            return response.choices[0].message.content.strip()
+            content = self._call_llm(system_prompt, prompt, temperature=0.3, max_tokens=1000)
+            return content.strip() if content else ""
         except Exception as e:
             print(f"Erro ao gerar resumo de resolução: {e}")
             return ""
@@ -362,22 +530,18 @@ Responda em formato JSON:
 
 Responda APENAS com o JSON, sem markdown ou texto adicional."""
 
+        system_prompt = "Você é um redator técnico especializado em documentação de incidentes."
+        
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=4000
-            )
+            content = self._call_llm(system_prompt, prompt, temperature=0.3, max_tokens=4000)
             
-            content = response.choices[0].message.content.strip()
-            if content.startswith("```"):
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
-            content = content.strip()
+            if not content:
+                return timeline
             
-            data = json.loads(content)
+            data = _extract_json(content)
+            if not data:
+                return timeline
+            
             rewritten_events = data.get("events", [])
             
             # Cria mapeamento de índice para nova descrição
@@ -463,23 +627,18 @@ Responda em formato JSON:
 
 Responda APENAS com o JSON, sem markdown ou texto adicional."""
 
+        system_prompt = "Você é um engenheiro de software sênior planejando ações pós-incidente."
+        
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.5,
-                max_tokens=1000
-            )
+            content = self._call_llm(system_prompt, prompt, temperature=0.5, max_tokens=1000)
             
-            content = response.choices[0].message.content.strip()
-            if content.startswith("```"):
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
-            content = content.strip()
+            if not content:
+                return []
             
-            data = json.loads(content)
-            return data.get("action_items", [])
+            data = _extract_json(content)
+            if data:
+                return data.get("action_items", [])
+            return []
         except Exception as e:
             print(f"Erro ao sugerir ações: {e}")
             return []

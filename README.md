@@ -103,6 +103,25 @@ OPENAI_API_KEY=sk-sua-api-key
 OPENAI_MODEL=gpt-4o  # ou gpt-4-turbo, gpt-3.5-turbo
 ```
 
+### LLM Customizado (Alternativa ao OpenAI)
+
+Se você possui um LLM local (como LM Studio, Ollama, ou outro servidor compatível) ou deseja usar um endpoint de LLM externo, pode usá-lo em vez da OpenAI:
+
+**Via CLI:**
+```bash
+python -m src.main --title "Incidente X" --jira URL1 --llm-endpoint http://192.168.15.6:1234/api/v1/chat
+```
+
+**Via Interface Web:** Marque a opção "Usar LLM customizado" e informe a URL do endpoint.
+
+**Via variáveis de ambiente (opcional):**
+```env
+LOCAL_LLM_URL=http://192.168.15.6:1234/api/v1/chat
+LOCAL_LLM_MODEL=liquid/lfm2.5-1.2b
+```
+
+> **Nota:** O LLM deve expor uma API compatível com o formato `{"model": "...", "system_prompt": "...", "input": "..."}`.
+
 ### Notion (Opcional)
 
 Para criar páginas diretamente no Notion:
@@ -168,6 +187,16 @@ python -m src.main \
   --context "Deploy da versão 2.3.0 foi realizado às 21:00"
 ```
 
+**Usando LLM customizado:**
+
+```bash
+python -m src.main \
+  --title "Incidente - Serviço X indisponível" \
+  --jira "https://empresa.atlassian.net/browse/PROJ-456" \
+  --impact "Serviço indisponível" \
+  --llm-endpoint http://192.168.15.6:1234/api/v1/chat
+```
+
 ### Opções Disponíveis
 
 | Opção | Descrição |
@@ -182,6 +211,7 @@ python -m src.main \
 | `-s, --slack` | URL de thread do Slack (múltiplo) |
 | `-c, --context` | Contexto adicional |
 | `--no-ai` | Desabilita análise com IA |
+| `--llm-endpoint URL` | Usa LLM customizado (local ou externo) em vez da OpenAI (informe a URL do endpoint) |
 | `-o, --output` | Nome do arquivo de saída |
 | `--only-local` | Salva apenas localmente (não envia para Notion) |
 | `--notion` | Cria página no Notion |
